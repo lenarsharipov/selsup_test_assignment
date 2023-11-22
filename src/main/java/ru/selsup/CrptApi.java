@@ -5,6 +5,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.BlockingStrategy;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.Refill;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.ContentType;
@@ -13,28 +17,48 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class CrptApi {
     private static final String URL = "https://ismp.crpt.ru/api/v3/lk/documents/create";
     private static final String SIGNATURE = "Signature";
-    private final long time;
+
     private final TimeUnit timeUnit;
     private final int requestLimit;
+
+    private final Bucket bucket;
     private static final Logger LOG = LoggerFactory.getLogger(CrptApi.class.getName());
 
-    public CrptApi(final long time, final TimeUnit timeUnit, final int requestLimit) {
-        this.time = time;
+    public CrptApi(final TimeUnit timeUnit, final int requestLimit) {
         this.timeUnit = timeUnit;
         this.requestLimit = requestLimit;
+        bucket = Bucket.builder()
+                .addLimit(Bandwidth.classic(
+                        requestLimit,
+                        Refill.intervally(requestLimit, Duration.of(1, timeUnit.toChronoUnit()))
+                ))
+                .build();
     }
 
     public int createDocument(Document document, String signature) {
         LOG.info("Starting creating document");
-        var jsonDocument = DocumentUtils.documentToJson(document);
-        return executePostRequest(jsonDocument, signature);
+        int statusCode = 429;
+        try {
+            if (bucket.asBlocking().tryConsume(1, 100, BlockingStrategy.PARKING)) {
+                var jsonDocument = DocumentUtils.documentToJson(document);
+                statusCode = executePostRequest(jsonDocument, signature);
+                LOG.info("server's response code: " + statusCode);
+            }
+        } catch (InterruptedException e) {
+            LOG.error(e.getMessage());
+        }
+
+        return statusCode;
+
     }
 
     private int executePostRequest(String jsonDocument, String signature) {
@@ -56,7 +80,7 @@ public class CrptApi {
     }
 
     /**
-     * Утлитный класс для работы с Document.
+     * Утилитный класс для работы с Document.
      */
     static class DocumentUtils {
         private static final Logger LOG = LoggerFactory.getLogger(DocumentUtils.class.getName());

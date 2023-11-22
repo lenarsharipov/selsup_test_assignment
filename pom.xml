@@ -18,6 +18,13 @@
     </properties>
 
     <dependencies>
+        <!-- Bucket4j -->
+        <dependency>
+            <groupId>com.github.vladimir-bukhtoyarov</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>7.6.0</version>
+        </dependency>
+
         <!-- Http5 libraries -->
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
