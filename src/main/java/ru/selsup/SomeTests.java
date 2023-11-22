@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 public class SomeTests {
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) {
         var document = new CrptApi.Document(
                 new CrptApi.Description("123456789"),
                 "123",

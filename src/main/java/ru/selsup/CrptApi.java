@@ -31,7 +31,7 @@ public class CrptApi {
         this.requestLimit = requestLimit;
     }
 
-    public int createDocument(Document document, String signature) throws InterruptedException {
+    public int createDocument(Document document, String signature) {
         LOG.info("Starting creating document");
         var jsonDocument = DocumentUtils.documentToJson(document);
         return executePostRequest(jsonDocument, signature);
