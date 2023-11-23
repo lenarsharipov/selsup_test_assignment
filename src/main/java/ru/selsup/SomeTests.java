@@ -34,33 +34,25 @@ public class SomeTests {
                 "RegNumber"
         );
 
-        CrptApi crptApi = new CrptApi(TimeUnit.SECONDS, 1);
-
-        int threadCount = 10;
-        ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
+        var crptApi = new CrptApi(TimeUnit.MINUTES, 3);
+        int threadCount = 5;
+        var executorService = Executors.newFixedThreadPool(threadCount);
         try {
-            // Create a list to hold the futures of the API calls
             List<Future<Void>> futures = new ArrayList<>();
-
             for (int i = 0; i < threadCount; i++) {
                 Callable<Void> apiCallTask = () -> {
                     System.out.println("API called by thread: " + Thread.currentThread().getName());
-                    crptApi.createDocument(document, "csdcsdcsdscsddc");
+                    crptApi.createDocument(document, "some signature");
                     return null;
                 };
-
-                // Submit the task to the executor service and store the future
                 futures.add(executorService.submit(apiCallTask));
             }
-
-            // Wait for all tasks to complete
             for (Future<Void> future : futures) {
                 future.get();
             }
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
         } finally {
-            // Shutdown the executor service
             executorService.shutdown();
         }
     }

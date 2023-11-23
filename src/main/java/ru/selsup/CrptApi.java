@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.BlockingStrategy;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
@@ -20,50 +19,56 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CrptApi {
     private static final String URL = "https://ismp.crpt.ru/api/v3/lk/documents/create";
     private static final String SIGNATURE = "Signature";
-
-    private final TimeUnit timeUnit;
-    private final int requestLimit;
-
+    private final AtomicBoolean hasScheduledTask = new AtomicBoolean(true);
+    private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
     private final Bucket bucket;
     private static final Logger LOG = LoggerFactory.getLogger(CrptApi.class.getName());
 
     public CrptApi(final TimeUnit timeUnit, final int requestLimit) {
-        this.timeUnit = timeUnit;
-        this.requestLimit = requestLimit;
         bucket = Bucket.builder()
-                .addLimit(Bandwidth.classic(
-                        requestLimit,
-                        Refill.intervally(requestLimit, Duration.of(1, timeUnit.toChronoUnit()))
-                ))
+                .addLimit(
+                        Bandwidth.classic(
+                                requestLimit,
+                                Refill.intervally(
+                                        requestLimit,
+                                        Duration.of(1, timeUnit.toChronoUnit())
+                                )
+                        ))
                 .build();
     }
 
     public int createDocument(Document document, String signature) {
         LOG.info("Starting creating document");
         int statusCode = 429;
-        try {
-            if (bucket.asBlocking().tryConsume(1, 100, BlockingStrategy.PARKING)) {
-                var jsonDocument = DocumentUtils.documentToJson(document);
-                statusCode = executePostRequest(jsonDocument, signature);
-                LOG.info("server's response code: " + statusCode);
-            }
-        } catch (InterruptedException e) {
-            LOG.error(e.getMessage());
+        if (bucket.tryConsume(1)) {
+            hasScheduledTask.set(false);
+            var jsonDocument = DocumentUtils.parseDocumentToJson(document);
+            statusCode = executePostRequest(jsonDocument, signature);
+            LOG.info("server's response code: " + statusCode);
+        } else {
+            executorService.schedule(() -> {
+                createDocument(document, signature);
+            }, 1000, TimeUnit.MILLISECONDS);
+            hasScheduledTask.set(true);
+            LOG.info("No tokens available. Scheduled execution");
         }
-
+        if (!hasScheduledTask.get()) {
+            executorService.shutdown();
+        }
         return statusCode;
-
     }
 
     private int executePostRequest(String jsonDocument, String signature) {
-        int statusCode = -1;
         LOG.info("Starting post request");
+        int statusCode = -1;
         try (var entity = new StringEntity(jsonDocument, ContentType.APPLICATION_JSON);
             var client = HttpClients.createDefault()
         ) {
@@ -85,7 +90,7 @@ public class CrptApi {
     static class DocumentUtils {
         private static final Logger LOG = LoggerFactory.getLogger(DocumentUtils.class.getName());
 
-        public static String documentToJson(Document document) {
+        public static String parseDocumentToJson(Document document) {
             LOG.info("Starting parsing document to JSON");
             String jsonString = null;
             try {
@@ -102,7 +107,6 @@ public class CrptApi {
     }
 
     public record Description(String participantInn) {
-
     }
 
     public record Product(
@@ -120,7 +124,6 @@ public class CrptApi {
             @JsonProperty("uit_code") String uitCode,
             @JsonProperty("uitu_code") String uituCode
     ) {
-
     }
 
     public record Document(
